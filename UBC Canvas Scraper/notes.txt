@@ -1,0 +1,59 @@
+A common misconception is that 'the API should not timeout, it should be more robust and I shouldn't have to handle timeout errors'. Today I am here to bust that myth! Any number of issues can cause timeouts of which Canvas is only one small piece of the network puzzle in the mind-bogglingly colossal chain of devices you rely on to connect between the two. Sometimes in the ether of the internet, something takes a little longer and some of what you sent over the internet goes astray. Most of the time, the internet is robust enough to handle this, sometimes, despite the best-laid plans of mice and men, you get a timeout.
+
+Therefore, in my opinion, correctly handling timeouts is not even optional, it is a necessity. One great implementation is that if you get a timeout, you should try again, if you get another timeout, implement a mechanism to sleep and then try again after X period (e.g. 60 seconds). You may want to re-try at increasingly longer durations for up to 24 hours, then implement a hard failure. Not only does this cover you for occasional glitches in the world wide interwebs, but will also cover you for any outages if your institution loses internet connection for a brief period, or if Canvas experiences either scheduled or unscheduled downtime (as two examples).
+
+Now for the rest of error handling! Rest APIs employ standard HTTP error codes in the first instance, and then application specific error codes in the second instance. I highly recommend checking out HTTP Status Codes on Rest API Tutorial's site. You may not initially want to handle every single one individually, 200's indicate success (that's good), 400's and 500's indicate a problem (that's bad), now you know these exist you can handle them (that's good), having to handle them can be time consuming (that's bad). Kudos to anyone that can pick the pop culture reference/joke here!
+
+Finally, application errors! An application error is something that you try to do that Canvas itself says 'sorry, not going to happen'. This may be because you don't have permissions/access to execute your desired call, it may be because some of the required data is missing in your call, it may be because you have some flags incorrectly set, and so on. In these cases, it is essential to log what you tried to do, the calls you sent (ensure you do not record your API authentication token in logs), the result the API returned, and importantly the exact time and date (and timezone if relevant) you sent the call. Capturing all these details will make things far easier to diagnose if you need to contact Canvas support, and will greatly aid the team helping you to narrow down the problem.
+
+kotlin for mobile apps?
+announcements
+403: forbidden
+409: conflict
+401: unauthorized
+404: not found
+
+Submit a script (or link to a repository) to lt.hub@ubc.ca and ask for a
+Canvas API code review. The LTHub can help with coding standards and efficiencies as
+well identifying any red flags from a policy perspective.
+
+
+tl;dr The API is rate limited based on the API token (not the account, instance, or user). Exceeding rate limits will result in a 403 Forbidden (Rate Limit Exceeded) error. API calls made sequentially shouldn't be an issue. However, you may run into issues if you're running concurrent API requests with the same token.
+
+Canvas will include several parameters in the header of the response to your request. The field name X-Rate-Limit-Remaining is pretty self explanatory, it's the amount of cost available in the bucket. So a low number in this field can be cause for concern. You'll also receive X-Request-Cost which is the cost of the current call. So if you do need to run requests in parallel you can use this to determine the rate at which these requests will run.
+
+Canvas includes a built in dynamic throttling mechanism to prevent a single user from abusing the system and causing adverse effects for others. It works by having a rate limit, and a cost for every request. Each request subtracts from your quota, and the quota is automatically replenished over time. In the event that your API request is throttled, you will receive a 403 Forbidden (Rate Limit Exceeded) response. Your application should be prepared for this error, and retry the request at a later time.
+
+To assist applications with planning, every request will return a X-Request-Cost header that is a floating point number of the amount that request deducted from your remaining quota. If throttling is applicable to this request, there will also be a X-Rate-Limit-Remaining header of your remaining quota.
+
+Since the cost of a request is roughly based on the amount of time it takes to process, and the quota (by default) replenishes at a rate faster than real-time, any API client that makes no more than one simultaneous request is unlikely to be throttled. Parallel requests are subject to an additional pre-flight penalty to prevent a large number of incoming requests being able to bring the system down before their cost is counted against their quota. As soon as each request finishes, the pre-flight penalty is credited back to the quota, and only the actual cost of the request is counted.
+
+For applications that go through the OAuth flow and obtain an access token for each user, each access token has its own quota, and the developer need not be concerned with requests from one user causing another user to be throttled.
+
+Assuming you have already read the 'Understanding API rate-limits: a practical guide!' Section lets build on this further! One thing I did not touch on further is the detail on the best way to handle API rate limits. Rather than simply detecting, and backing off, you can go a step further, and your script/integration can be aware of the API limits.
+
+If you have a read through Throttling - Canvas LMS REST API Documentation, it states: 'To assist applications with planning, every request will return a X-Request-Cost header that is a floating point number of the amount that request deducted from your remaining quota. If throttling is applicable to this request (it could be disabled on your Canvas installation, or you are whitelisted and not subject to throttling), there will also be a X-Rate-Limit-Remaining header of your remaining quota.'.
+
+ 
+
+Therefore, if you are starting out, and wish to go down the path of parallelisation of your queries, I would strongly recommend you consider logging the X-Request-Cost in your debug logs, as well as the X-Rate-Limit-Remaining value. Knowledge is power, and ensuring you are aware of the maximum scale of your solution ensures you understands its limits.
+
+ 
+
+You may find that you can run numbers (with some assumptions) and ascertain the acceptable throughput of your solution. If you find you are exhausting the API rate limit repeatedly, you may need to optimise your code (to reduce API calls if possible) or follow some of my earlier suggestions to use different API keys per call (as one example).
+
+The currently supported data-api-returntype values are:
+
+    Assignment
+    Discussion
+    Page
+    File
+    Folder
+    Quiz
+    Module
+
+
+meta data: 1 function to update database with files currently on system
+1 function to read database and compare against files that are about to be updated
+same name handling etc.
+
