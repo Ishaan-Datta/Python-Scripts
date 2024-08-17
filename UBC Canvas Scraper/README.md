@@ -47,3 +47,5 @@ For each of the functions, it will have an input parameter called event which co
 event_type — The type of the event as a string. Default to None.
 is_directory — True if event was emitted for a directory; False otherwise.
 src_path — Source path of the file system object that triggered this event.
+
+# email notifications module 

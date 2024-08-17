@@ -1,0 +1,1 @@
+dekala script should lower brightness of lamp over time synchronized with flux

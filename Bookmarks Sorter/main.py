@@ -1,98 +1,115 @@
 import pprint
 import re
-import csv
 import pandas as pd
+from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
+from functools import partial
+import time
+from typing import List, Tuple
 
-# Extracting bookmark/folder data from file
+# Constants for bookmark patterns
+BOOKMARK_PATTERN = re.compile(r'<DT><A HREF="(.*?)" ADD_DATE="(\d+)"[^>]*>(.*?)</A>')
+FOLDER_PATTERN = re.compile(r'>([^>]+)</H3>')
 
-file_name = (
-    "C:/Users/ishaa/OneDrive - UBC/Coding/Unfinished/Projects/Bookmark Parser/test.html"
-)
-
-with open(file_name, "r", encoding="UTF-8") as file:
-    path = "Bookmarks Bar"
-    master_directory = {}
-    bookmarks = []
-    folders = []
-
-    while True:
-        line = file.readline()
-        master_directory[f"{path}_bookmarks"] = 
-        if not line:
-            break
-
-
-def bookmark_parser(line, path, indent):
-    bookmarks = []
-    bookmark_data_pattern = re.compile(
-        '<DT><A HREF="(.*?)" ADD_DATE="(\\d+)"[^>]*>(.*?)</A>'
-    )
-    bookmark_matches = bookmark_data_pattern.search(line)
-    if bookmark_matches != None:
-        bookmarks.append(
-            (
-                bookmark_matches[1],
-                bookmark_matches[2],
-                bookmark_matches[3].strip(),
+def process_bookmark_chunk(chunk: List[str], chunk_index: int) -> List[Tuple[str, str, str]]:
+    """
+    Processes a chunk of the bookmark HTML content and extracts bookmark and folder information.
+    Args: chunk (List[str]): A list of lines representing a chunk of the HTML file, chunk_index (int): The index of the chunk being processed.
+    Returns: List[Tuple[str, str, str]]: A list of extracted bookmarks from the chunk.
+    """
+    bookmarks: List[Tuple[str, str, str]] = []
+    for line in tqdm(chunk, desc=f"Processing chunk {chunk_index + 1}", position=chunk_index, leave=True):
+        # Extract bookmarks
+        bookmark_matches = BOOKMARK_PATTERN.search(line)
+        if bookmark_matches:
+            bookmarks.append(
+                (
+                    bookmark_matches[1],  # URL
+                    bookmark_matches[2],  # Add date
+                    bookmark_matches[3].strip(),  # Title
+                )
             )
-        )
+        time.sleep(0.01)  # Simulate processing time
     return bookmarks
 
+def chunk_file(file_path: str, num_chunks: int = 4) -> List[List[str]]:
+    """
+    Splits the file into chunks for parallel processing.
+    Args: file_path (str): The path to the bookmark HTML file, num_chunks (int): Number of chunks to split the file into.
+    Returns: List[List[str]]: A list containing file chunks.
+    """
+    with open(file_path, "r", encoding="UTF-8") as file:
+        lines = file.readlines()
+        chunk_size = len(lines) // num_chunks
+        return [lines[i:i + chunk_size] for i in range(0, len(lines), chunk_size)]
 
-def folder_parser(line, path, indent):
-    folders = []
-    folder_data_pattern = re.compile(">([^>]+)</H3>")
-    folder_matches = folder_data_pattern.search(line)
-    if folder_matches != None:
-        folders.append(folder_matches[1])
-    return folders
+def process_file_in_parallel(file_path: str, num_chunks: int = 4) -> pd.DataFrame:
+    """
+    Processes the bookmark file in parallel using multiple processes.
+    Args: file_path (str): The path to the bookmark HTML file, num_chunks (int): Number of chunks to split the file into for parallel processing.
+    Returns: pd.DataFrame: A DataFrame containing all processed bookmarks.
+    """
+    # Split the file into chunks
+    chunks = chunk_file(file_path, num_chunks=num_chunks)
 
-# # RENAMING AND DUPLICATE DETECTION
-removal_patterns = []
-youtube_subscription_pattern = re.compile("(\(\d+\))")
-youtube_label_pattern = re.compile(" - YouTube")
-google_label_pattern = re.compile(" - Google Search")
+    # Create a multiprocessing Pool and process the chunks in parallel
+    with Pool(processes=min(cpu_count(), num_chunks)) as pool:
+        # Use partial to pass the chunk index
+        results = pool.starmap(partial(process_bookmark_chunk), [(chunks[i], i) for i in range(num_chunks)])
 
+    # Flatten the list of results
+    bookmarks = [bookmark for sublist in results for bookmark in sublist]
+    
+    # Convert to DataFrame
+    return pd.DataFrame(bookmarks, columns=['URL', 'Date Modified', 'Name'])
 
-bookmark_df = {
-    "Indent Level:": "bruh",
-    "Folder Path:": "bruh",
-    "Name:": "bruh",
-    "URL:": "bruh",
-    "Date Modified:": "bruh",
-}
+def rename_and_detect_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Renames bookmarks and detects duplicates based on specific patterns using vectorized operations.
+    Args: df (pd.DataFrame): DataFrame containing bookmark information.
+    Returns: pd.DataFrame: Updated DataFrame with renamed bookmarks and duplicate flags.
+    """
+    # Define patterns
+    youtube_subscription_pattern = re.compile(r'\(\d+\)')
+    youtube_label_pattern = re.compile(r' - YouTube')
+    google_label_pattern = re.compile(r' - Google Search')
 
-df = pd.DataFrame(bookmark_df)
+    # Vectorized operations for renaming
+    df['Name'] = df['Name'].str.replace(youtube_subscription_pattern, "", regex=True)
+    df['Name'] = df['Name'].str.replace(youtube_label_pattern, "", regex=True)
+    df['Name'] = df['Name'].str.replace(google_label_pattern, "", regex=True)
 
-# displaying potential items for renaming:
-for i in df.itertuples():
-    bookmark_name = i[3]
-    print(bookmark_name)
-    names_list = bookmark_name.split()
+    # Detect duplicates using efficient data structures (sets)
+    df['Duplicate Name'] = df.duplicated(subset='Name')
+    df['Duplicate URL'] = df.duplicated(subset='URL')
 
-    for item in names_list:
-        print(item)
-        item = re.sub(youtube_subscription_pattern, "", item)
-        item = re.sub(youtube_label_pattern, "", item)
-        print(item)
+    return df
 
-# duplicate links:
-bool_series = df.duplicated(subset="Name")
-print(f"Found {bool_series.count()} name duplicates.")
+def save_to_csv(df: pd.DataFrame, output_file: str) -> None:
+    """
+    Saves the DataFrame to a CSV file.
+    Args: df (pd.DataFrame): DataFrame containing bookmark information, output_file (str): The path to the output CSV file.
+    """
+    df.to_csv(output_file, index=False)
+    print(f"Bookmarks saved to {output_file}")
 
-# duplicate names:
-bool_series = df.duplicated(subset="URL")
-print(f"Found {bool_series.count()} URL duplicates.")
+def main():
+    # Path to the bookmark HTML file
+    file_path = "C:/Users/ishaa/Coding Projects/Python-Scripts/Bookmarks Sorter/test.html"
+    output_file = "bookmarks.csv"
 
-# FILE REMAKING
-# make backup before modifying original file, automatic renaming, just conversion to csv?
-# definitely want to output this to csv for easier analysis, pandas review
-# with this understanding could export the same folder back?
-# experiment w/ ctrl C ctrl C ctrl V into excel and see what format works with import back?
+    # Process the bookmark file in parallel
+    bookmark_df = process_file_in_parallel(file_path, num_chunks=4)
 
-# ADDITIONAL MODULES
-# p shuffle feature, tagging, api, possibly using yt-dl to find video details
-# static delay + random smaller
-# pprint.pprint(bookmarks)
-# option to make folders based on keywords or domain - OF, twitter
-# additional module to flag videos that are private, dont exist, channels doesnt exist, etc.
+    time.sleep(0.3)  # Simulate processing time
+    # Rename and detect duplicates
+    bookmark_df = rename_and_detect_duplicates(bookmark_df)
+
+    # Save the DataFrame to CSV
+    save_to_csv(bookmark_df, output_file)
+
+    # Pretty print the bookmarks for debugging purposes
+    pprint.pprint(bookmark_df.head())
+
+if __name__ == "__main__":
+    main()
