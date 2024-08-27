@@ -49,3 +49,5 @@ is_directory — True if event was emitted for a directory; False otherwise.
 src_path — Source path of the file system object that triggered this event.
 
 # email notifications module 
+
+Log - System  Source - Kernel-Power  EventID - 42/187  <<- sleep event
